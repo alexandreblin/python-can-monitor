@@ -164,6 +164,7 @@ def main(stdscr, serial_thread):
             break
         elif c == curses.KEY_RESIZE:
             win = init_window(stdscr)
+            should_redraw.set()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process CAN data from a serial device.')
