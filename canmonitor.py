@@ -1,5 +1,4 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 import argparse
 import curses
@@ -102,7 +101,7 @@ def main(stdscr, serial_thread):
             # Compute row/column counts according to the window size and borders
             row_start = 3
             lines_per_column = max_y - (1 + row_start)
-            num_columns = (max_x - 2) / column_width
+            num_columns = (max_x - 2) // column_width
 
             # Setting up column headers
             for i in range(0, num_columns):
@@ -128,7 +127,7 @@ def main(stdscr, serial_thread):
                     # and spaces are replaced by '.'
                     msg_str = ''
                     for byte in msg:
-                        char = unichr(byte)
+                        char = chr(byte)
                         if char == '\0':
                             msg_str = msg_str + '.'
                         elif ord(char) < 32 or ord(char) > 126:
