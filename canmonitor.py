@@ -82,6 +82,7 @@ def main(stdscr, serial_thread):
     # Don't print typed character
     curses.noecho()
     curses.cbreak()
+    curses.curs_set(0) # set cursor state to invisible
 
     # Set getch() to non-blocking
     stdscr.nodelay(True)
