@@ -26,7 +26,7 @@ def read_until_newline(serial_device):
     return line.strip()
 
 
-def serial_run_loop(serial_device):
+def serial_run_loop(serial_device, blacklist):
     """Background thread for serial reading."""
     try:
         while not stop_serial.is_set():
@@ -38,6 +38,10 @@ def serial_run_loop(serial_device):
 
             try:
                 frame_id = int(frame[1][3:])  # get the ID from the 'ID=246' string
+
+                if frame_id in blacklist:
+                    continue
+
                 frame_length = int(frame[2][4:])  # get the length from the 'LEN=8' string
 
                 data = [int(byte, 16) for byte in frame[3:]]  # convert the hex strings array to an integer array
@@ -166,23 +170,41 @@ def main(stdscr, serial_thread):
             win = init_window(stdscr)
             should_redraw.set()
 
+
+def parse_ints(string_list):
+    int_set = set()
+    for line in string_list:
+        try:
+            int_set.add(int(line, 0))
+        except ValueError:
+            continue
+    return int_set
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process CAN data from a serial device.')
     parser.add_argument('serial_device', type=str)
     parser.add_argument('baud_rate', type=int, default=115200,
                         help='Serial baud rate in bps (default: 115200)')
 
+    parser.add_argument('--blacklist', '-b', nargs='+', metavar='BLACKLIST', help="Ids that must be ignored")
+
     args = parser.parse_args()
 
     serial_device = None
     serial_thread = None
+
+    if args.blacklist:
+        blacklist = parse_ints(args.blacklist)
+    else:
+        blacklist = set()
 
     try:
         # Open serial device with non-blocking read() (timeout=0)
         serial_device = serial.Serial(args.serial_device, args.baud_rate, timeout=0)
 
         # Start the serial reading background thread
-        serial_thread = threading.Thread(target=serial_run_loop, args=(serial_device,))
+        serial_thread = threading.Thread(target=serial_run_loop, args=(serial_device, blacklist,))
         serial_thread.start()
 
         # Make sure to draw the UI the first time even if there is no serial data
