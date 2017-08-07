@@ -188,13 +188,23 @@ if __name__ == '__main__':
                         help='Serial baud rate in bps (default: 115200)')
 
     parser.add_argument('--blacklist', '-b', nargs='+', metavar='BLACKLIST', help="Ids that must be ignored")
+    parser.add_argument(
+        '--blacklist-file',
+        '-bf',
+        metavar='BLACKLIST_FILE',
+        help="File containing ids that must be ignored",
+    )
 
     args = parser.parse_args()
 
     serial_device = None
     serial_thread = None
 
-    if args.blacklist:
+    # --blacklist-file prevails over --blacklist
+    if args.blacklist_file:
+        with open(args.blacklist_file) as f_obj:
+            blacklist = parse_ints(f_obj)
+    elif args.blacklist:
         blacklist = parse_ints(args.blacklist)
     else:
         blacklist = set()
