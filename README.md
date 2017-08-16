@@ -13,17 +13,17 @@ where `X` is the CAN frame ID (decimal), `Y` is the number of bytes in the frame
 ## Usage
 Install the dependencies (preferably in a virtualenv)
 
-    pip install -r requirements.txt
+    pip install -e .
 
 Launch the script
 
-    ./canmonitor.py <serial device> <baud rate>
+    canmonitor <serial device> <baud rate>
 
 Press Q at any time to exit the script.
 
 ## Example
 
-    ./canmonitor.py /dev/tty.usbmodem1451 115200
+    canmonitor /dev/tty.usbmodem1451 115200
     
 ![Screenshot](http://i.imgur.com/1nqCQKz.png)
 

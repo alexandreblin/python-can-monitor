@@ -4,3 +4,4 @@ pip-selfcheck.json
 bin
 include
 lib
+canmonitor.egg-info

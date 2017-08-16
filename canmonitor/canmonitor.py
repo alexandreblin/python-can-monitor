@@ -194,7 +194,7 @@ def parse_ints(string_list):
     return int_set
 
 
-if __name__ == '__main__':
+def run():
     parser = argparse.ArgumentParser(description='Process CAN data from a serial device.')
     parser.add_argument('serial_device', type=str)
     parser.add_argument('baud_rate', type=int, default=115200,
@@ -249,3 +249,6 @@ if __name__ == '__main__':
             if thread_exception:
                 traceback.print_exception(*thread_exception)
                 sys.stderr.flush()
+
+if __name__ == '__main__':
+    run()
