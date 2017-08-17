@@ -77,6 +77,30 @@ def init_window(stdscr):
     return root_window
 
 
+def format_data_hex(data):
+    """Convert the bytes array to an hex representation."""
+    # Bytes are separated by spaces.
+    return ' '.join('%02X' % byte for byte in data)
+
+
+def format_data_ascii(data):
+    """Try to make an ASCII representation of the bytes.
+
+    Non printable characters are replaced by '?' except null character which
+    is replaced by '.'.
+    """
+    msg_str = ''
+    for byte in data:
+        char = chr(byte)
+        if char == '\0':
+            msg_str = msg_str + '.'
+        elif ord(char) < 32 or ord(char) > 126:
+            msg_str = msg_str + '?'
+        else:
+            msg_str = msg_str + char
+    return msg_str
+
+
 def main(stdscr, serial_thread):
     """Main function displaying the UI."""
     # Don't print typed character
@@ -119,21 +143,9 @@ def main(stdscr, serial_thread):
                 for frame_id in sorted(can_messages.keys()):
                     msg = can_messages[frame_id]
 
-                    # convert the bytes array to an hex string (separated by spaces)
-                    msg_bytes = ' '.join('%02X' % byte for byte in msg)
+                    msg_bytes = format_data_hex(msg)
 
-                    # try to make an ASCII representation of the bytes
-                    # nonprintable characters are replaced by '?'
-                    # and spaces are replaced by '.'
-                    msg_str = ''
-                    for byte in msg:
-                        char = chr(byte)
-                        if char == '\0':
-                            msg_str = msg_str + '.'
-                        elif ord(char) < 32 or ord(char) > 126:
-                            msg_str = msg_str + '?'
-                        else:
-                            msg_str = msg_str + char
+                    msg_str = format_data_ascii(msg)
 
                     # print frame ID in decimal and hex
                     win.addstr(row, id_column_start + current_column * column_width, '%s' % str(frame_id).ljust(5))
