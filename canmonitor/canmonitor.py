@@ -10,7 +10,7 @@ from .source_handler import InvalidFrame, SerialHandler
 
 
 should_redraw = threading.Event()
-stop_serial = threading.Event()
+stop_reading = threading.Event()
 
 can_messages = {}
 can_messages_lock = threading.Lock()
@@ -18,10 +18,10 @@ can_messages_lock = threading.Lock()
 thread_exception = None
 
 
-def serial_run_loop(source_handler, blacklist):
+def reading_loop(source_handler, blacklist):
     """Background thread for reading."""
     try:
-        while not stop_serial.is_set():
+        while not stop_reading.is_set():
             try:
                 frame_id, data = source_handler.get_message()
             except InvalidFrame:
@@ -36,7 +36,7 @@ def serial_run_loop(source_handler, blacklist):
                 should_redraw.set()
 
     except:
-        if not stop_serial.is_set():
+        if not stop_reading.is_set():
             # Only log exception if we were not going to stop the thread
             # When quitting, the main thread calls close() on the serial device
             # and read() may throw an exception. We don't want to display it as
@@ -82,7 +82,7 @@ def format_data_ascii(data):
     return msg_str
 
 
-def main(stdscr, serial_thread):
+def main(stdscr, reading_thread):
     """Main function displaying the UI."""
     # Don't print typed character
     curses.noecho()
@@ -120,7 +120,7 @@ def main(stdscr, serial_thread):
             row = row_start + 2  # The first column starts a bit lower to make space for the 'press q to quit message'
             current_column = 0
 
-            # Make sure we don't read the can_messages dict while it's being written to in the serial thread
+            # Make sure we don't read the can_messages dict while it's being written to in the reading thread
             with can_messages_lock:
                 for frame_id in sorted(can_messages.keys()):
                     msg = can_messages[frame_id]
@@ -154,7 +154,7 @@ def main(stdscr, serial_thread):
             should_redraw.clear()
 
         c = stdscr.getch()
-        if c == ord('q') or not serial_thread.is_alive():
+        if c == ord('q') or not reading_thread.is_alive():
             break
         elif c == curses.KEY_RESIZE:
             win = init_window(stdscr)
@@ -187,7 +187,7 @@ def run():
 
     args = parser.parse_args()
 
-    serial_thread = None
+    reading_thread = None
 
     # --blacklist-file prevails over --blacklist
     if args.blacklist_file:
@@ -203,24 +203,24 @@ def run():
     try:
         source_handler.open()  # Serial device will be opened with timeout=0 (non-blocking read())
 
-        # Start the serial reading background thread
-        serial_thread = threading.Thread(target=serial_run_loop, args=(source_handler, blacklist,))
-        serial_thread.start()
+        # Start the reading background thread
+        reading_thread = threading.Thread(target=reading_loop, args=(source_handler, blacklist,))
+        reading_thread.start()
 
-        # Make sure to draw the UI the first time even if there is no serial data
+        # Make sure to draw the UI the first time even if no data has been read
         should_redraw.set()
 
         # Start the main loop
-        curses.wrapper(main, serial_thread)
+        curses.wrapper(main, reading_thread)
     finally:
-        # Cleanly stop serial thread before exiting
-        if serial_thread:
-            stop_serial.set()
+        # Cleanly stop reading thread before exiting
+        if reading_thread:
+            stop_reading.set()
 
             if source_handler:
                 source_handler.close()
 
-            serial_thread.join()
+            reading_thread.join()
 
             # If the thread returned an exception, print it
             if thread_exception:
