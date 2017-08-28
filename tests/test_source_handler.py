@@ -1,10 +1,14 @@
 """Tests for source_hanlder.py"""
 
+from os import path
 import unittest
 
 import serial
 
-from canmonitor.source_handler import InvalidFrame, SerialHandler
+from canmonitor.source_handler import CandumpHandler, InvalidFrame, SerialHandler
+
+
+TEST_DATA_DIR = path.abspath(path.join(path.dirname(__file__), 'data'))
 
 
 class SerialHandlerTestCase(unittest.TestCase):
@@ -49,3 +53,35 @@ class SerialHandlerTestCase(unittest.TestCase):
         missing_length_frame = b"FRAME:ID=246:8E\n"
         self.serial_handler.serial_device.write(missing_length_frame)
         self.assertRaises(InvalidFrame, self.serial_handler.get_message)
+
+
+class CandumpHandlerTestCase(unittest.TestCase):
+    """Test case for source_handler.CandumpHandler."""
+
+    maxDiff = None
+
+    def setUp(self):
+        file_path = path.join(TEST_DATA_DIR, 'test_data.log')
+        self.candump_handler = CandumpHandler(file_path)
+        self.candump_handler.open()
+
+    def tearDown(self):
+        self.candump_handler.close()
+
+    def test_get_message(self):
+        messages = [self.candump_handler.get_message() for _ in range(7)]
+
+        expected_messages = [
+            (0x000, b""),
+            (0x000, b"\x00\x00\x00\x00\x00\x00\x00\x00"),
+            (0xFFF, b"\xff\xff\xff\xff\xff\xff\xff\xff"),
+            (0x001, b"\x00\x00\x00\x00\x00\x00\x00\x01"),
+            (0x100, b"\x10\x00\x00\x00\x00\x00\x00\x00"),
+            (0xABC, b"\x12\xaf\x49"),
+            (0x743, b"\x9f\x20\xa1\x20\x78\xbc\xea\x98"),
+        ]
+
+        self.assertEqual(expected_messages, messages)
+
+        self.assertRaises(InvalidFrame, self.candump_handler.get_message)
+        self.assertRaises(EOFError, self.candump_handler.get_message)

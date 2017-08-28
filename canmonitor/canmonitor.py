@@ -6,7 +6,7 @@ import sys
 import threading
 import traceback
 
-from .source_handler import InvalidFrame, SerialHandler
+from .source_handler import CandumpHandler, InvalidFrame, SerialHandler
 
 
 should_redraw = threading.Event()
@@ -26,6 +26,8 @@ def reading_loop(source_handler, blacklist):
                 frame_id, data = source_handler.get_message()
             except InvalidFrame:
                 continue
+            except EOFError:
+                break
 
             if frame_id in blacklist:
                 continue
@@ -34,6 +36,8 @@ def reading_loop(source_handler, blacklist):
             with can_messages_lock:
                 can_messages[frame_id] = data
                 should_redraw.set()
+
+        stop_reading.wait()
 
     except:
         if not stop_reading.is_set():
@@ -172,10 +176,11 @@ def parse_ints(string_list):
 
 
 def run():
-    parser = argparse.ArgumentParser(description='Process CAN data from a serial device.')
-    parser.add_argument('serial_device', type=str)
-    parser.add_argument('baud_rate', type=int, default=115200,
+    parser = argparse.ArgumentParser(description='Process CAN data from a serial device or from a file.')
+    parser.add_argument('serial_device', type=str, nargs='?')
+    parser.add_argument('baud_rate', type=int, default=115200, nargs='?',
                         help='Serial baud rate in bps (default: 115200)')
+    parser.add_argument('-f', '--candump-file', metavar='CANDUMP_FILE', help="File (of 'candump' format) to read from")
 
     parser.add_argument('--blacklist', '-b', nargs='+', metavar='BLACKLIST', help="Ids that must be ignored")
     parser.add_argument(
@@ -187,7 +192,17 @@ def run():
 
     args = parser.parse_args()
 
-    reading_thread = None
+    # checks arguments
+    if not args.serial_device and not args.candump_file:
+        print("Please specify serial device or file name")
+        print()
+        parser.print_help()
+        return
+    if args.serial_device and args.candump_file:
+        print("You cannot specify a serial device AND a file name")
+        print()
+        parser.print_help()
+        return
 
     # --blacklist-file prevails over --blacklist
     if args.blacklist_file:
@@ -198,10 +213,16 @@ def run():
     else:
         blacklist = set()
 
-    source_handler = SerialHandler(args.serial_device, baudrate=args.baud_rate)
+    if args.serial_device:
+        source_handler = SerialHandler(args.serial_device, baudrate=args.baud_rate)
+    elif args.candump_file:
+        source_handler = CandumpHandler(args.candump_file)
+
+    reading_thread = None
 
     try:
-        source_handler.open()  # Serial device will be opened with timeout=0 (non-blocking read())
+        # If reading from a serial device, it will be opened with timeout=0 (non-blocking read())
+        source_handler.open()
 
         # Start the reading background thread
         reading_thread = threading.Thread(target=reading_loop, args=(source_handler, blacklist,))
