@@ -100,7 +100,7 @@ def main(stdscr, reading_thread):
 
     while True:
         # should_redraw is set by the serial thread when new data is available
-        if should_redraw.is_set():
+        if should_redraw.wait(timeout=0.05):  # Timeout needed in order to react to user input
             max_y, max_x = win.getmaxyx()
 
             column_width = 50
