@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
-from binascii import unhexlify
 import curses
 import sys
 import threading
 import traceback
 
-import serial
+from .source_handler import InvalidFrame, SerialHandler
+
 
 should_redraw = threading.Event()
 stop_serial = threading.Event()
@@ -18,47 +18,23 @@ can_messages_lock = threading.Lock()
 thread_exception = None
 
 
-def read_until_newline(serial_device):
-    """Read data from `serial_device` until the next newline character."""
-    line = serial_device.readline()
-    while not line.endswith(b'\n'):
-        line = line + serial_device.readline()
-
-    return line.strip()
-
-
-def serial_run_loop(serial_device, blacklist):
-    """Background thread for serial reading."""
+def serial_run_loop(source_handler, blacklist):
+    """Background thread for reading."""
     try:
         while not stop_serial.is_set():
-            line = read_until_newline(serial_device)
-
-            # Sample frame from Arduino: FRAME:ID=246:LEN=8:8E:62:1C:F6:1E:63:63:20
-            # Split it into an array (e.g. ['FRAME', 'ID=246', 'LEN=8', '8E:62:1C:F6:1E:63:63:20'])
-            frame = line.split(b':', maxsplit=3)
-
             try:
-                frame_id = int(frame[1][3:])  # get the ID from the 'ID=246' string
-
-                if frame_id in blacklist:
-                    continue
-
-                frame_length = int(frame[2][4:])  # get the length from the 'LEN=8' string
-
-                hex_data = frame[3].replace(b':', b'')
-                data = unhexlify(hex_data)
-
-                if len(data) != frame_length:
-                    # Wrong frame length or invalid data
-                    continue
-
-                # Add the frame to the can_messages dict and tell the main thread to refresh its content
-                with can_messages_lock:
-                    can_messages[frame_id] = data
-                    should_redraw.set()
-            except:
-                # Invalid frame
+                frame_id, data = source_handler.get_message()
+            except InvalidFrame:
                 continue
+
+            if frame_id in blacklist:
+                continue
+
+            # Add the frame to the can_messages dict and tell the main thread to refresh its content
+            with can_messages_lock:
+                can_messages[frame_id] = data
+                should_redraw.set()
+
     except:
         if not stop_serial.is_set():
             # Only log exception if we were not going to stop the thread
@@ -211,7 +187,6 @@ def run():
 
     args = parser.parse_args()
 
-    serial_device = None
     serial_thread = None
 
     # --blacklist-file prevails over --blacklist
@@ -223,12 +198,13 @@ def run():
     else:
         blacklist = set()
 
+    source_handler = SerialHandler(args.serial_device, baudrate=args.baud_rate)
+
     try:
-        # Open serial device with non-blocking read() (timeout=0)
-        serial_device = serial.Serial(args.serial_device, args.baud_rate, timeout=0)
+        source_handler.open()  # Serial device will be opened with timeout=0 (non-blocking read())
 
         # Start the serial reading background thread
-        serial_thread = threading.Thread(target=serial_run_loop, args=(serial_device, blacklist,))
+        serial_thread = threading.Thread(target=serial_run_loop, args=(source_handler, blacklist,))
         serial_thread.start()
 
         # Make sure to draw the UI the first time even if there is no serial data
@@ -241,8 +217,8 @@ def run():
         if serial_thread:
             stop_serial.set()
 
-            if serial_device:
-                serial_device.close()
+            if source_handler:
+                source_handler.close()
 
             serial_thread.join()
 
