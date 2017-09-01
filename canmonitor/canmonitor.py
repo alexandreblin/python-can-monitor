@@ -20,7 +20,7 @@ thread_exception = None
 def read_until_newline(serial_device):
     """Read data from `serial_device` until the next newline character."""
     line = serial_device.readline()
-    while len(line) == 0 or line[-1:] != b'\n':
+    while not line.endswith(b'\n'):
         line = line + serial_device.readline()
 
     return line.strip()
