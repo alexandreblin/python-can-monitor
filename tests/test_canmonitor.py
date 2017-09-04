@@ -4,6 +4,8 @@
 from os import path
 import unittest
 
+import serial
+
 from canmonitor import canmonitor
 
 
@@ -43,3 +45,15 @@ class CanmonitorTestCase(unittest.TestCase):
             int_set = canmonitor.parse_ints(f_obj)
         self.assertEqual(int_set, {1, 2, 15, 3, 4, 57, 7})
 
+    def test_read_until_newline(self):
+        ser = serial.serial_for_url('loop://')
+
+        sent_msg = b'hello'
+
+        try:
+            ser.write(sent_msg + b'\n')
+
+            read_msg = canmonitor.read_until_newline(ser)
+            self.assertEqual(sent_msg, read_msg)
+        finally:
+            ser.close()

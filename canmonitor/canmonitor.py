@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from binascii import unhexlify
 import curses
 import sys
 import threading
@@ -20,7 +21,7 @@ thread_exception = None
 def read_until_newline(serial_device):
     """Read data from `serial_device` until the next newline character."""
     line = serial_device.readline()
-    while len(line) == 0 or line[-1] != '\n':
+    while not line.endswith(b'\n'):
         line = line + serial_device.readline()
 
     return line.strip()
@@ -33,8 +34,8 @@ def serial_run_loop(serial_device, blacklist):
             line = read_until_newline(serial_device)
 
             # Sample frame from Arduino: FRAME:ID=246:LEN=8:8E:62:1C:F6:1E:63:63:20
-            # Split it into an array (e.g. ['FRAME', 'ID=246', 'LEN=8', '8E', '62', '1C', 'F6', '1E', '63', '63', '20'])
-            frame = line.split(':')
+            # Split it into an array (e.g. ['FRAME', 'ID=246', 'LEN=8', '8E:62:1C:F6:1E:63:63:20'])
+            frame = line.split(b':', maxsplit=3)
 
             try:
                 frame_id = int(frame[1][3:])  # get the ID from the 'ID=246' string
@@ -44,8 +45,8 @@ def serial_run_loop(serial_device, blacklist):
 
                 frame_length = int(frame[2][4:])  # get the length from the 'LEN=8' string
 
-                data = [int(byte, 16) for byte in frame[3:]]  # convert the hex strings array to an integer array
-                data = [byte for byte in data if byte >= 0 and byte <= 255]  # sanity check
+                hex_data = frame[3].replace(b':', b'')
+                data = unhexlify(hex_data)
 
                 if len(data) != frame_length:
                     # Wrong frame length or invalid data
