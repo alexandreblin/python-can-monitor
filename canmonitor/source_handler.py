@@ -74,7 +74,7 @@ class SerialHandler(SourceHandler):
             hex_data = frame[3].replace(b':', b'')
             data = unhexlify(hex_data)
 
-        except Exception as exc:
+        except (IndexError, ValueError) as exc:
             raise InvalidFrame("Invalid frame {}".format(line)) from exc
 
         if len(data) != frame_length:
