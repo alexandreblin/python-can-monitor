@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 
 import argparse
-from binascii import unhexlify
 import curses
 import sys
 import threading
 import traceback
 
-import serial
+from .source_handler import CandumpHandler, InvalidFrame, SerialHandler
+
 
 should_redraw = threading.Event()
-stop_serial = threading.Event()
+stop_reading = threading.Event()
 
 can_messages = {}
 can_messages_lock = threading.Lock()
@@ -18,49 +18,29 @@ can_messages_lock = threading.Lock()
 thread_exception = None
 
 
-def read_until_newline(serial_device):
-    """Read data from `serial_device` until the next newline character."""
-    line = serial_device.readline()
-    while not line.endswith(b'\n'):
-        line = line + serial_device.readline()
-
-    return line.strip()
-
-
-def serial_run_loop(serial_device, blacklist):
-    """Background thread for serial reading."""
+def reading_loop(source_handler, blacklist):
+    """Background thread for reading."""
     try:
-        while not stop_serial.is_set():
-            line = read_until_newline(serial_device)
-
-            # Sample frame from Arduino: FRAME:ID=246:LEN=8:8E:62:1C:F6:1E:63:63:20
-            # Split it into an array (e.g. ['FRAME', 'ID=246', 'LEN=8', '8E:62:1C:F6:1E:63:63:20'])
-            frame = line.split(b':', maxsplit=3)
-
+        while not stop_reading.is_set():
             try:
-                frame_id = int(frame[1][3:])  # get the ID from the 'ID=246' string
-
-                if frame_id in blacklist:
-                    continue
-
-                frame_length = int(frame[2][4:])  # get the length from the 'LEN=8' string
-
-                hex_data = frame[3].replace(b':', b'')
-                data = unhexlify(hex_data)
-
-                if len(data) != frame_length:
-                    # Wrong frame length or invalid data
-                    continue
-
-                # Add the frame to the can_messages dict and tell the main thread to refresh its content
-                with can_messages_lock:
-                    can_messages[frame_id] = data
-                    should_redraw.set()
-            except:
-                # Invalid frame
+                frame_id, data = source_handler.get_message()
+            except InvalidFrame:
                 continue
+            except EOFError:
+                break
+
+            if frame_id in blacklist:
+                continue
+
+            # Add the frame to the can_messages dict and tell the main thread to refresh its content
+            with can_messages_lock:
+                can_messages[frame_id] = data
+                should_redraw.set()
+
+        stop_reading.wait()
+
     except:
-        if not stop_serial.is_set():
+        if not stop_reading.is_set():
             # Only log exception if we were not going to stop the thread
             # When quitting, the main thread calls close() on the serial device
             # and read() may throw an exception. We don't want to display it as
@@ -106,7 +86,7 @@ def format_data_ascii(data):
     return msg_str
 
 
-def main(stdscr, serial_thread):
+def main(stdscr, reading_thread):
     """Main function displaying the UI."""
     # Don't print typed character
     curses.noecho()
@@ -120,7 +100,7 @@ def main(stdscr, serial_thread):
 
     while True:
         # should_redraw is set by the serial thread when new data is available
-        if should_redraw.is_set():
+        if should_redraw.wait(timeout=0.05):  # Timeout needed in order to react to user input
             max_y, max_x = win.getmaxyx()
 
             column_width = 50
@@ -144,7 +124,7 @@ def main(stdscr, serial_thread):
             row = row_start + 2  # The first column starts a bit lower to make space for the 'press q to quit message'
             current_column = 0
 
-            # Make sure we don't read the can_messages dict while it's being written to in the serial thread
+            # Make sure we don't read the can_messages dict while it's being written to in the reading thread
             with can_messages_lock:
                 for frame_id in sorted(can_messages.keys()):
                     msg = can_messages[frame_id]
@@ -178,7 +158,7 @@ def main(stdscr, serial_thread):
             should_redraw.clear()
 
         c = stdscr.getch()
-        if c == ord('q') or not serial_thread.is_alive():
+        if c == ord('q') or not reading_thread.is_alive():
             break
         elif c == curses.KEY_RESIZE:
             win = init_window(stdscr)
@@ -196,10 +176,11 @@ def parse_ints(string_list):
 
 
 def run():
-    parser = argparse.ArgumentParser(description='Process CAN data from a serial device.')
-    parser.add_argument('serial_device', type=str)
-    parser.add_argument('baud_rate', type=int, default=115200,
+    parser = argparse.ArgumentParser(description='Process CAN data from a serial device or from a file.')
+    parser.add_argument('serial_device', type=str, nargs='?')
+    parser.add_argument('baud_rate', type=int, default=115200, nargs='?',
                         help='Serial baud rate in bps (default: 115200)')
+    parser.add_argument('-f', '--candump-file', metavar='CANDUMP_FILE', help="File (of 'candump' format) to read from")
 
     parser.add_argument('--blacklist', '-b', nargs='+', metavar='BLACKLIST', help="Ids that must be ignored")
     parser.add_argument(
@@ -211,8 +192,17 @@ def run():
 
     args = parser.parse_args()
 
-    serial_device = None
-    serial_thread = None
+    # checks arguments
+    if not args.serial_device and not args.candump_file:
+        print("Please specify serial device or file name")
+        print()
+        parser.print_help()
+        return
+    if args.serial_device and args.candump_file:
+        print("You cannot specify a serial device AND a file name")
+        print()
+        parser.print_help()
+        return
 
     # --blacklist-file prevails over --blacklist
     if args.blacklist_file:
@@ -223,28 +213,35 @@ def run():
     else:
         blacklist = set()
 
+    if args.serial_device:
+        source_handler = SerialHandler(args.serial_device, baudrate=args.baud_rate)
+    elif args.candump_file:
+        source_handler = CandumpHandler(args.candump_file)
+
+    reading_thread = None
+
     try:
-        # Open serial device with non-blocking read() (timeout=0)
-        serial_device = serial.Serial(args.serial_device, args.baud_rate, timeout=0)
+        # If reading from a serial device, it will be opened with timeout=0 (non-blocking read())
+        source_handler.open()
 
-        # Start the serial reading background thread
-        serial_thread = threading.Thread(target=serial_run_loop, args=(serial_device, blacklist,))
-        serial_thread.start()
+        # Start the reading background thread
+        reading_thread = threading.Thread(target=reading_loop, args=(source_handler, blacklist,))
+        reading_thread.start()
 
-        # Make sure to draw the UI the first time even if there is no serial data
+        # Make sure to draw the UI the first time even if no data has been read
         should_redraw.set()
 
         # Start the main loop
-        curses.wrapper(main, serial_thread)
+        curses.wrapper(main, reading_thread)
     finally:
-        # Cleanly stop serial thread before exiting
-        if serial_thread:
-            stop_serial.set()
+        # Cleanly stop reading thread before exiting
+        if reading_thread:
+            stop_reading.set()
 
-            if serial_device:
-                serial_device.close()
+            if source_handler:
+                source_handler.close()
 
-            serial_thread.join()
+            reading_thread.join()
 
             # If the thread returned an exception, print it
             if thread_exception:
