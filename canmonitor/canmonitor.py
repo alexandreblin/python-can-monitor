@@ -181,6 +181,7 @@ def run():
     parser.add_argument('baud_rate', type=int, default=115200, nargs='?',
                         help='Serial baud rate in bps (default: 115200)')
     parser.add_argument('-f', '--candump-file', metavar='CANDUMP_FILE', help="File (of 'candump' format) to read from")
+    parser.add_argument('-s', '--candump-speed', type=float, metavar='CANDUMP_SPEED', help="Speed scale of file read")
 
     parser.add_argument('--blacklist', '-b', nargs='+', metavar='BLACKLIST', help="Ids that must be ignored")
     parser.add_argument(
@@ -216,7 +217,7 @@ def run():
     if args.serial_device:
         source_handler = SerialHandler(args.serial_device, baudrate=args.baud_rate)
     elif args.candump_file:
-        source_handler = CandumpHandler(args.candump_file)
+        source_handler = CandumpHandler(args.candump_file, args.candump_speed)
 
     reading_thread = None
 
